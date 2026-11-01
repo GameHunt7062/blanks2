@@ -1,7 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
 import { mergeContent, validateCatalog, type SiteContent } from "./content";
 import { SESSION_COOKIE, adminIds, verifySession } from "./session";
 
@@ -12,19 +10,11 @@ async function currentAdmin() {
 }
 
 export const getSiteContent = createServerFn({ method: "GET" }).handler(async () => {
-  const key = process.env["SUPABASE_PUBLISHABLE_KEY"]!;
-  const sb = createClient<Database>(process.env["SUPABASE_URL"]!, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: {
-      fetch: (input, init) => {
-        const h = new Headers(init?.headers);
-        if (key.startsWith("sb_") && h.get("Authorization") === `Bearer ${key}`) h.delete("Authorization");
-        h.set("apikey", key);
-        return fetch(input, { ...init, headers: h });
-      },
-    },
-  });
-  const { data } = await sb.from("site_content").select("data").eq("id", "main").maybeSingle();
+  // Server-only read with the service-role client: no dependency on the publishable key / RLS policies.
+  // (This code never runs in the browser; the content itself is public anyway.)
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin.from("site_content").select("data").eq("id", "main").maybeSingle();
+  if (error) console.error("[site_content] read failed:", error.message);
   return mergeContent(data?.data);
 });
 
